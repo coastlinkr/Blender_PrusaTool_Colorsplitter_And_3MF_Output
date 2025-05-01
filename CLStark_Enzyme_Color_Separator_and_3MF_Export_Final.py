@@ -1,11 +1,11 @@
-
 bl_info = {
-    "name": "Enzyme Color Separator + Prusa 3MF Export",
+    "name": "Enzyme Color Separator + Export All Visible Meshes to 3MF",
     "author": "Colin L. Stark",
-    "version": (2, 2),
+    "version": (3, 1),
     "blender": (3, 0, 0),
     "location": "View3D > Sidebar > Prusa Tools",
     "description": "Separates mesh by vertex color and exports valid 3MF for PrusaSlicer, rebuilds the broken Blender 3MF output system and respects the PrusaSlicer XML tags as well as relative locations for models so nothing must be done manually!",
+
     "category": "Import-Export"
 }
 
@@ -17,6 +17,7 @@ import struct
 import xml.etree.ElementTree as ET
 from mathutils import Color
 from collections import defaultdict
+import re
 
 def quantize_color(color, levels):
     return tuple(round(c * (levels - 1)) / (levels - 1) for c in color)
@@ -44,6 +45,9 @@ def parse_stl(filepath):
             triangles.append(tri)
             f.read(2)
     return vertices, triangles
+
+def safe_xml_name(name):
+    return re.sub(r'[^a-zA-Z0-9_-]', '_', name)
 
 class EnzymeColorSplitter(bpy.types.Operator):
     bl_idname = "object.separate_enzyme_color"
@@ -128,8 +132,8 @@ class EnzymeColorSplitter(bpy.types.Operator):
 
 class ExportEnzyme3MF(bpy.types.Operator):
     bl_idname = "export_scene.enzyme_3mf"
-    bl_label = "Export Prusa-Compatible 3MF"
-    bl_description = "Export selected color groups as valid 3MF"
+    bl_label = "Export All Visible Meshes to 3MF"
+    bl_description = "Export all visible mesh objects in the scene to valid 3MF"
 
     filepath: bpy.props.StringProperty(subtype="FILE_PATH")
 
@@ -148,14 +152,18 @@ class ExportEnzyme3MF(bpy.types.Operator):
         basematerials = ET.SubElement(resources, "basematerials", id="1")
 
         object_ids = []
-        mesh_objs = [o for o in bpy.data.objects if o.type == 'MESH' and o.name.startswith("Enzyme_ColorGroup")]
+        mesh_objs = [
+            o for o in bpy.context.scene.objects
+            if o.type == 'MESH' and not o.hide_viewport and not o.hide_get()
+        ]
 
         for idx, obj in enumerate(mesh_objs, start=1):
             bpy.ops.object.select_all(action='DESELECT')
             obj.select_set(True)
             context.view_layer.objects.active = obj
+            bpy.ops.object.transform_apply(location=False, rotation=True, scale=True)
 
-            export_name = f"color_part_{idx}"
+            export_name = safe_xml_name(obj.name)
             stl_path = os.path.join(temp_dir, f"{export_name}.stl")
             bpy.ops.export_mesh.stl(filepath=stl_path, use_selection=True, global_scale=1.0)
 
